@@ -9,12 +9,14 @@ use ieee.math_real.ceil;
 package game_types is
 
   -- constants
-  constant MAP_TILES_BITS       : integer := 6;                             -- bits needed to describe tile position
+  constant MAP_TILES_BITS       : integer := 4;                             -- bits needed to describe tile position
   constant MAP_MAX_SIZE_TILES   : integer := 2 ** MAP_TILES_BITS;           -- map max size (width height) in tiles
   constant TILE_PX_BITS         : integer := 3;                             -- bits needed to describe PX position within tile
   constant TILE_PX              : integer := 2 ** TILE_PX_BITS;             -- tile size (width height) in pixels
   constant MAP_MAX_SIZE_PX_BITS : integer := MAP_TILES_BITS + TILE_PX_BITS; -- bits needed to describe pixel position within the full map
   constant MAP_MAX_SIZE_PX      : integer := 2 ** MAP_MAX_SIZE_PX_BITS;     -- map max size (width height) in pixels
+
+  constant MAP_MAX_SPAWNS : integer := MAP_MAX_SIZE_TILES * MAP_MAX_SIZE_TILES / 2;
 
   constant PLAYER_WIDTH       : integer := TILE_PX - 2;
   constant PLAYER_HEIGHT      : integer := TILE_PX - 2;
@@ -107,7 +109,7 @@ package game_types is
   function default_map_t return map_t;
 
   -- 1d array for spawn tile spawn locations
-  type spawn_t is array (0 to MAP_MAX_SIZE_TILES - 1) of tilepos_t;
+  type spawn_t is array (0 to MAP_MAX_SPAWNS - 1) of tilepos_t;
   function default_spawn_t return spawn_t;
 
   -- a tilemap contains a map_t, spawn_t, width and height
@@ -121,18 +123,19 @@ package game_types is
   end record tilemap_t;
   function default_tilemap_t return tilemap_t;
 
-  subtype s_pixelcoord_t is signed(MAP_MAX_SIZE_PX_BITS downto 0);
+  subtype pixelcoord_t is signed(MAP_MAX_SIZE_PX_BITS downto 0);
 
   -- helper functions on tiles
   function is_solid(tile : tile_t) return boolean;
   function is_water(tile : tile_t) return boolean;
   function get_tile(m : tilemap_t; pos : f4_vec_t) return tile_t;
-  function get_tile(m : tilemap_t; pixel_x : s_pixelcoord_t; pixel_y : s_pixelcoord_t) return tile_t;
+  function get_tile(m : tilemap_t; pixel_x : pixelcoord_t; pixel_y : pixelcoord_t) return tile_t;
   function get_tile(m : tilemap_t; tile_x : integer; tile_y : integer) return tile_t;
   function get_tile_id(pixels : integer) return integer;
   function set_tile(m : tilemap_t; tile_pos : tilepos_t; tile : tile_t) return tilemap_t;
   function tile_to_pixel(tile : integer) return integer;
   function integer_to_f4(pixels : integer) return f4_t;
+  -- function f4_to_pixelcoord(p : f4_t) return pixelcoord_t;
 
   function sample_spawn(m : tilemap_t; rng : std_logic_vector(31 downto 0)) return tilepos_t;
   function to_f4_vec(pos : tilepos_t) return f4_vec_t;
@@ -210,11 +213,8 @@ package body game_types is
   end function;
 
   function default_spawn_t return spawn_t is
-    variable val : spawn_t;
+    variable val : spawn_t := (others => default_tilepos_t);
   begin
-    for i in 0 to MAP_MAX_SIZE_TILES - 1 loop
-      val(i) := default_tilepos_t;
-    end loop;
     return val;
   end function;
 
@@ -271,7 +271,7 @@ package body game_types is
     return m.m(to_integer(m.height) - 1 - tile_y, tile_x);
   end function;
 
-  function get_tile(m : tilemap_t; pixel_x : s_pixelcoord_t; pixel_y : s_pixelcoord_t) return tile_t is
+  function get_tile(m : tilemap_t; pixel_x : pixelcoord_t; pixel_y : pixelcoord_t) return tile_t is
     variable tile_x : integer;
     variable tile_y : integer;
   begin
@@ -322,7 +322,7 @@ package body game_types is
 
   function tile_to_pixel(tile : integer) return integer is
   begin
-    return to_integer(shift_left(to_signed(tile, 32), TILE_PX_BITS));
+    return to_integer(shift_left(to_signed(tile, MAP_MAX_SIZE_PX_BITS + 1), TILE_PX_BITS));
   end function;
 
   function integer_to_f4(pixels : integer) return f4_t is

@@ -1,6 +1,6 @@
 -- This houses the high level state machine, which is dictated
 -- from what is sent from PS to PL. This does not handle sending
--- data from PL to PS. That is handled elsewhere.
+-- data from PL to PS. That is handled in comms_tx.
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -22,6 +22,7 @@ entity comms_rx is
     inference_go      : out boolean       := false;
     human_input       : out playerinput_t := default_playerinput_t;
     human_input_valid : out boolean       := false;
+    test_go           : out boolean       := false;
 
     -- configs
     tilemap   : out tilemap_t   := default_tilemap_t;
@@ -68,7 +69,10 @@ architecture comms_rx_arch of comms_rx is
   constant TILEMAP_MSG       : msg_t := x"01"; -- start tilemap transfer
   constant GA_CONFIG_MSG     : msg_t := x"02"; -- start ga_config transfer
   constant TRAINING_STOP_MSG : msg_t := x"03"; -- stop the training early
-  constant PLAYER_INPUT_MSG  : msg_t := x"04"; -- human player input transfer TODO implement
+  -- TODO: look into strategies for resetting/flushing state machine
+  constant PLAYER_INPUT_MSG : msg_t := x"04"; -- human player input transfer
+  constant TEST_MSG         : msg_t := x"05"; -- test print to serial
+  constant INFERENCE_GO_MSG : msg_t := x"06"; -- init game, configure to use player input
 
 begin
 
@@ -82,6 +86,7 @@ begin
       inference_go      <= false;
       human_input       <= default_playerinput_t;
       human_input_valid <= false;
+      test_go           <= false;
 
       -- we only do anything when we recieve a valid message
       if uart_rx_valid = '1' then
@@ -102,6 +107,10 @@ begin
                 training_stop <= true;
               when PLAYER_INPUT_MSG =>
                 state <= TR_PLAYER_INPUT;
+              when TEST_MSG =>
+                test_go <= true;
+              when INFERENCE_GO_MSG =>
+                inference_go <= true;
               when others =>
                 null;
             end case;
@@ -117,8 +126,7 @@ begin
             -- TODO: might need to swap x and y here.
             to_integer(tr_counter(MAP_TILES_BITS - 1 downto 0)),
             to_integer(tr_counter(2 * MAP_TILES_BITS - 1 downto MAP_TILES_BITS))
-            -- TODO: uart_rx is 8 bits, but a tile is 3 bits. this auto-truncate is bad practice...
-            ) <= uart_rx;
+            ) <= uart_rx(2 downto 0);
 
             if tr_counter = MAP_MAX_SIZE_TILES * MAP_MAX_SIZE_TILES - 1 then
               -- go next
@@ -135,12 +143,12 @@ begin
             -- on even counts, populate x.
             -- on odd counts, populate y.
             if tr_counter(0) = '0' then
-              tilemap.spawn(to_integer(tr_counter(15 downto 1))).x <= unsigned(uart_rx);
+              tilemap.spawn(to_integer(tr_counter(15 downto 1))).x <= unsigned(uart_rx(MAP_TILES_BITS - 1 downto 0));
             else
-              tilemap.spawn(to_integer(tr_counter(15 downto 1))).y <= unsigned(uart_rx);
+              tilemap.spawn(to_integer(tr_counter(15 downto 1))).y <= unsigned(uart_rx(MAP_TILES_BITS - 1 downto 0));
             end if;
 
-            if tr_counter = MAP_MAX_SIZE_TILES - 1 then
+            if tr_counter = (2 * MAP_MAX_SPAWNS) - 1 then
               -- go next
               state      <= TR_MAP_NUM_SPAWN_S;
               tr_counter <= to_unsigned(0, 16);
@@ -155,17 +163,17 @@ begin
             state <= TR_MAP_NUM_SPAWN_BITS_S;
           when TR_MAP_NUM_SPAWN_BITS_S =>
             -- num_spawn_bits is just a byte
-            tilemap.num_spawn_bits <= unsigned(uart_rx);
+            tilemap.num_spawn_bits <= unsigned(uart_rx(3 downto 0));
             -- go next
             state <= TR_MAP_WIDTH;
           when TR_MAP_WIDTH =>
             -- map width is just a byte
-            tilemap.width <= unsigned(uart_rx);
+            tilemap.width <= unsigned(uart_rx(MAP_TILES_BITS downto 0));
             -- go next
             state <= TR_MAP_HEIGHT;
           when TR_MAP_HEIGHT =>
             -- map height is just a byte
-            tilemap.height <= unsigned(uart_rx);
+            tilemap.height <= unsigned(uart_rx(MAP_TILES_BITS downto 0));
             -- go back to idle
             state <= IDLE_S;
 
@@ -200,7 +208,7 @@ begin
             end if;
           when TR_GA_RUN_UNTIL_STOP_CMD =>
             -- run_until_stop_cmd is a bool
-            if tr_counter(0) = '0' then
+            if uart_rx(0) = '0' then
               ga_config.run_until_stop_cmd <= false;
             else
               ga_config.run_until_stop_cmd <= true;
@@ -274,6 +282,8 @@ begin
               -- go back to idle
               state      <= IDLE_S;
               tr_counter <= to_unsigned(0, 16);
+            else
+              tr_counter <= tr_counter + 1;
             end if;
 
           -- player input transfer

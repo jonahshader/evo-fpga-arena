@@ -20,6 +20,7 @@ entity comms_tx is
     ga_state_send  : in boolean;
     gamestate      : in gamestate_t;
     gamestate_send : in boolean;
+    test_go        : in boolean;
 
     -- ready to initiate a transfer (i.e., not busy)
     ready : out boolean
@@ -30,7 +31,7 @@ architecture comms_tx_arch of comms_tx is
 
   type state_t is (
     IDLE_S,
-    -- ga state transfers
+    -- ga status transfers
     TR_CURRENT_GEN_1_S,
     TR_CURRENT_GEN_2_S,
     TR_REFERENCE_FITNESS_1_S,
@@ -61,8 +62,9 @@ architecture comms_tx_arch of comms_tx is
   signal uart_ready_r : boolean := true;
 
   subtype  msg_t is std_logic_vector(7 downto 0);
-  constant GA_STATE_MSG  : msg_t := x"01";
+  constant GA_STATUS_MSG : msg_t := x"01";
   constant GAMESTATE_MSG : msg_t := x"02";
+  constant TEST_MSG      : msg_t := x"68"; -- 'h'
 
 begin
 
@@ -85,7 +87,7 @@ begin
       if ready then
         if ga_state_send then
           -- send a message indicating we are about to transfer ga state
-          uart_tx      <= GA_STATE_MSG;
+          uart_tx      <= GA_STATUS_MSG;
           uart_tx_send <= '1';
           uart_ready_r <= false;
           state        <= TR_CURRENT_GEN_1_S;
@@ -95,6 +97,11 @@ begin
           uart_tx_send <= '1';
           uart_ready_r <= false;
           state        <= TR_P1_X_1_S;
+        elsif test_go then
+          uart_tx      <= TEST_MSG;
+          uart_tx_send <= '1';
+          uart_ready_r <= false;
+        -- no state transition
         end if;
       end if;
 
@@ -118,52 +125,46 @@ begin
           when TR_P1_X_1_S =>
             -- convert to integer with truncation (no rounding) and wrapping (no saturation)
             -- then convert to std_logic_vector and take the upper byte
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p1.pos.x, fixed_wrap, fixed_truncate),
-                                                    16)(15 downto 8));
+            -- uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p1.pos.x, fixed_wrap, fixed_truncate),
+            --                                         16)(15 downto 8));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p1.pos.x, 15, 8, fixed_wrap, fixed_truncate));
             state   <= TR_P1_X_2_S;
           when TR_P1_X_2_S =>
             -- take the lower byte
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p1.pos.x, fixed_wrap, fixed_truncate),
-                                                    16)(7 downto 0));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p1.pos.x, 7, 0, fixed_wrap, fixed_truncate));
             state   <= TR_P1_Y_1_S;
           when TR_P1_Y_1_S =>
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p1.pos.y, fixed_wrap, fixed_truncate),
-                                                    16)(15 downto 8));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p1.pos.y, 15, 8, fixed_wrap, fixed_truncate));
             state   <= TR_P1_Y_2_S;
           when TR_P1_Y_2_S =>
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p1.pos.y, fixed_wrap, fixed_truncate),
-                                                    16)(7 downto 0));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p1.pos.y, 7, 0, fixed_wrap, fixed_truncate));
             state   <= TR_P1_SCORE_1_S;
           when TR_P1_SCORE_1_S =>
-            uart_tx <= std_logic_vector(gamestate.p1.score)(15 downto 8);
+            uart_tx <= std_logic_vector(gamestate.p1.score(15 downto 8));
             state   <= TR_P1_SCORE_2_S;
           when TR_P1_SCORE_2_S =>
-            uart_tx <= std_logic_vector(gamestate.p1.score)(7 downto 0);
+            uart_tx <= std_logic_vector(gamestate.p1.score(7 downto 0));
             state   <= TR_P1_DEAD_TIMEOUT_S;
           when TR_P1_DEAD_TIMEOUT_S =>
             uart_tx <= std_logic_vector(gamestate.p1.dead_timeout);
             state   <= TR_P2_X_1_S;
           when TR_P2_X_1_S =>
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p2.pos.x, fixed_wrap, fixed_truncate),
-                                                    16)(15 downto 8));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p2.pos.x, 15, 8, fixed_wrap, fixed_truncate));
             state   <= TR_P2_X_2_S;
           when TR_P2_X_2_S =>
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p2.pos.x, fixed_wrap, fixed_truncate),
-                                                    16)(7 downto 0));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p2.pos.x, 7, 0, fixed_wrap, fixed_truncate));
             state   <= TR_P2_Y_1_S;
           when TR_P2_Y_1_S =>
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p2.pos.y, fixed_wrap, fixed_truncate),
-                                                    16)(15 downto 8));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p2.pos.y, 15, 8, fixed_wrap, fixed_truncate));
             state   <= TR_P2_Y_2_S;
           when TR_P2_Y_2_S =>
-            uart_tx <= std_logic_vector(to_unsigned(to_integer(gamestate.p2.pos.y, fixed_wrap, fixed_truncate),
-                                                    16)(7 downto 0));
+            uart_tx <= to_std_logic_vector(resize(gamestate.p2.pos.y, 7, 0, fixed_wrap, fixed_truncate));
             state   <= TR_P2_SCORE_1_S;
           when TR_P2_SCORE_1_S =>
-            uart_tx <= std_logic_vector(gamestate.p2.score)(15 downto 8);
+            uart_tx <= std_logic_vector(gamestate.p2.score(15 downto 8));
             state   <= TR_P2_SCORE_2_S;
           when TR_P2_SCORE_2_S =>
-            uart_tx <= std_logic_vector(gamestate.p2.score)(7 downto 0);
+            uart_tx <= std_logic_vector(gamestate.p2.score(7 downto 0));
             state   <= TR_P2_DEAD_TIMEOUT_S;
           when TR_P2_DEAD_TIMEOUT_S =>
             uart_tx <= std_logic_vector(gamestate.p2.dead_timeout);
@@ -175,11 +176,11 @@ begin
             uart_tx <= std_logic_vector(resize(gamestate.coin_pos.y, 8));
             state   <= TR_AGE_1_S;
           when TR_AGE_1_S =>
-            uart_tx <= std_logic_vector(gamestate.age)(15 downto 8);
+            uart_tx <= std_logic_vector(gamestate.age(15 downto 8));
             state   <= TR_AGE_2_S;
           when TR_AGE_2_S =>
             -- take the lower byte
-            uart_tx <= std_logic_vector(gamestate.age)(7 downto 0);
+            uart_tx <= std_logic_vector(gamestate.age(7 downto 0));
             state   <= IDLE_S;
           when IDLE_S =>
             uart_tx_send <= '0';    -- don't send anything
