@@ -97,11 +97,14 @@ find_package(OpenMP REQUIRED)
 
 # Define common source files (excluding main.cpp)
 set(COMMON_SOURCES
+  src/games/color.h
   src/games/game.h
   src/games/jnb_render.cpp
   src/games/jnb_render.h
   src/games/jnb.cpp
   src/games/jnb.h
+  src/games/seek.cpp
+  src/games/seek.h
   src/models/human.h
   src/models/mlp_map_lut.cpp
   src/models/mlp_map_lut.h
@@ -117,18 +120,27 @@ set(COMMON_SOURCES
   src/optimizers/ga_funs.h
   src/optimizers/ga.cpp
   src/optimizers/ga.h
+  src/optimizers/openai_es.cpp
+  src/optimizers/openai_es.h
+  src/optimizers/optimizers.cpp
+  src/optimizers/optimizers.h
   src/optimizers/simple.h
   src/comms.cpp
   src/comms.h
   src/fixed_point.h
   src/neural_net.h
+  src/nn_utils.cpp
+  src/nn_utils.h
   src/observation_types.h
+  src/param_ops.cpp
+  src/param_ops.h
   src/parse_map.h
   src/pixel_game.cpp
   src/pixel_game.h
   src/pl_nn.cpp
   src/pl_nn.h
   src/play.h
+  src/preview.h
   src/rendering.cpp
   src/rendering.h
   src/training.cpp
@@ -180,25 +192,25 @@ if(WIN32)
   )
 endif()
 
-# Verilator-based executable (Linux only)
-if(NOT WIN32)
-  find_package(verilator HINTS $ENV{VERILATOR_ROOT} QUIET)
-  if(verilator_FOUND)
-    add_executable(verilog_sim
-      ${COMMON_SOURCES}
-      src/main_sim.cpp
-    )
-    verilate(verilog_sim SOURCES game_test.v)
-
-    target_include_directories(verilog_sim PRIVATE
-      ${COMMON_INCLUDE_DIRS}
-      ${VERILATOR_ROOT}/include
-    )
-
-    # Link with common libraries
-    target_link_libraries(verilog_sim PRIVATE ${COMMON_LIBRARIES})
-    message(STATUS "Verilator found. Building verilog_sim target.")
-  else()
-    message(STATUS "Verilator not found. Skipping verilog_sim target.")
-  endif()
-endif()
+# Verilator-based executable (Linux only) - TEMPORARILY COMMENTED OUT
+# if(NOT WIN32)
+#   find_package(verilator HINTS $ENV{VERILATOR_ROOT} QUIET)
+#   if(verilator_FOUND)
+#     add_executable(verilog_sim
+#       ${COMMON_SOURCES}
+#       src/main_sim.cpp
+#     )
+#     verilate(verilog_sim SOURCES game_test.v)
+# 
+#     target_include_directories(verilog_sim PRIVATE
+#       ${COMMON_INCLUDE_DIRS}
+#       ${VERILATOR_ROOT}/include
+#     )
+# 
+#     # Link with common libraries
+#     target_link_libraries(verilog_sim PRIVATE ${COMMON_LIBRARIES})
+#     message(STATUS "Verilator found. Building verilog_sim target.")
+#   else()
+#     message(STATUS "Verilator not found. Skipping verilog_sim target.")
+#   endif()
+# endif()

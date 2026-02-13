@@ -7,6 +7,7 @@
 #include <functional>
 #include <vector>
 
+#include "color.h"
 #include "rendering.h"
 
 namespace jnb {
@@ -36,7 +37,8 @@ int get_tile_id(int pos) {
 // TODO: on fpga we might be able to mash these phases together, because we can update
 // velocity without it taking effect immediately (i.e., we only see that register change
 // on the next cycle).
-std::vector<std::function<void(Player &, const Player &, const PlayerInput &, bool &)>>
+std::vector<std::function<void(Player &, size_t, const std::vector<Player> &, const PlayerInput &,
+                               std::uint8_t &)>>
 make_player_phases(const Player &_p, GameState &state) {
   // these values will be computed combinatorially on FPGA
 
@@ -60,8 +62,8 @@ make_player_phases(const Player &_p, GameState &state) {
   const Tile down_right_tile =
       state.map.read_map(x_tile_right, y_tile_down - 1); // tile below right_tile
 
-  auto phase1 = [=, &state](Player &p, const Player &other, const PlayerInput &input,
-                            bool &coin_collected) {
+  auto phase1 = [=, &state](Player &p, size_t player_index, const std::vector<Player> &others,
+                            const PlayerInput &input, std::uint8_t &coin_collected) {
     // early return if dead
     if (p.dead_timeout > 0)
       return;
@@ -145,24 +147,29 @@ make_player_phases(const Player &_p, GameState &state) {
     // HACK: because these phases run sequentially on CPU,
     // this player might die and be skipped by the next phase, which
     // is asymmetric
-    if (other.dead_timeout == 0) { // only run if opponent is alive
-      if ((p.y - other.y).abs() < F4(static_cast<int16_t>(PLAYER_HEIGHT))) {
-        if ((p.x - other.x).abs() <= F4(static_cast<int16_t>(PLAYER_WIDTH))) {
-          bool accel = true;
-          // if other player is significantly above this one, die
-          if (other.y >= p.y + F4(static_cast<int16_t>(PLAYER_KILL_HEIGHT))) {
-            p.queue_dead = true;
-          }
-          // if the opposite is true, gain a point
-          else if (p.y >= other.y + F4(static_cast<int16_t>(PLAYER_KILL_HEIGHT))) {
-            p.score += POINTS_PER_KILL;
-            accel = false;
-          }
-          if (accel) {
-            if (p.x > other.x) {
-              p.x_vel += (other.x - p.x + F4(static_cast<int16_t>(PLAYER_WIDTH)));
-            } else if (p.x < other.x) {
-              p.x_vel += (other.x - p.x - F4(static_cast<int16_t>(PLAYER_WIDTH)));
+    for (size_t other_index = 0; other_index < others.size(); ++other_index) {
+      if (other_index == player_index)
+        continue; // skip self
+      const Player &other = others[other_index];
+      if (other.dead_timeout == 0) { // only run if opponent is alive
+        if ((p.y - other.y).abs() < F4(static_cast<int16_t>(PLAYER_HEIGHT))) {
+          if ((p.x - other.x).abs() <= F4(static_cast<int16_t>(PLAYER_WIDTH))) {
+            bool accel = true;
+            // if other player is significantly above this one, die
+            if (other.y >= p.y + F4(static_cast<int16_t>(PLAYER_KILL_HEIGHT))) {
+              p.queue_dead = true;
+            }
+            // if the opposite is true, gain a point
+            else if (p.y >= other.y + F4(static_cast<int16_t>(PLAYER_KILL_HEIGHT))) {
+              p.score += POINTS_PER_KILL;
+              accel = false;
+            }
+            if (accel) {
+              if (p.x > other.x) {
+                p.x_vel += (other.x - p.x + F4(static_cast<int16_t>(PLAYER_WIDTH)));
+              } else if (p.x < other.x) {
+                p.x_vel += (other.x - p.x - F4(static_cast<int16_t>(PLAYER_WIDTH)));
+              }
             }
           }
         }
@@ -170,8 +177,8 @@ make_player_phases(const Player &_p, GameState &state) {
     }
   };
 
-  auto phase2 = [=, &state](Player &p, const Player &other, const PlayerInput &input,
-                            bool &coin_collected) {
+  auto phase2 = [=, &state](Player &p, size_t player_index, const std::vector<Player> &others,
+                            const PlayerInput &input, std::uint8_t &coin_collected) {
     // early return if dead
     if (p.dead_timeout > 1) {
       p.dead_timeout--;
@@ -266,76 +273,15 @@ make_player_phases(const Player &_p, GameState &state) {
   return {phase1, phase2};
 }
 
-void observe_state_simple(const GameState &state, std::vector<F4> &observation,
-                          bool p1_perspective) {
-  observation.resize(SIMPLE_INPUT_COUNT);
-  size_t index = 0;
-  // coin pos
-  observation[index++] = F4(static_cast<int16_t>(state.coin_pos.x * CELL_SIZE));
-  observation[index++] = F4(static_cast<int16_t>(state.coin_pos.y * CELL_SIZE));
-  // determine player state order based on who's observing (p1_perspective)
-  const Player &first = p1_perspective ? state.p1 : state.p2;
-  const Player &second = p1_perspective ? state.p2 : state.p1;
-  // first player pos
-  observation[index++] = first.x;
-  observation[index++] = first.y;
-  // first player vel
-  observation[index++] = first.x_vel;
-  observation[index++] = first.y_vel;
-  // players dead
-  observation[index++] = first.dead_timeout > 0 ? F4(1.0f) : F4(-1.0f);
-  observation[index++] = second.dead_timeout > 0 ? F4(1.0f) : F4(-1.0f);
-  // second player pos
-  observation[index++] = second.x;
-  observation[index++] = second.y;
-  // second player vel
-  observation[index++] = second.x_vel;
-  observation[index++] = second.y_vel;
+int get_fitness(const GameState &state, int player) {
+  // fitness used to be relative, but with multiple players i think absolute makes more sense
+  return state.players[player].score;
 }
 
-void observe_state_simple(const GameState &state, std::vector<float> &observation,
-                          bool p1_perspective) {
-  const float x_norm = 1.0f / (state.map.width * CELL_SIZE);
-  const float y_norm = 1.0f / (state.map.height * CELL_SIZE);
-  const float x_vel_norm = 1.0f / (MOVE_MAX_VEL.to_float());
-  const float y_vel_norm = 1.0f / (-FALL_MAX_VEL.to_float());
-
-  observation.resize(SIMPLE_INPUT_COUNT);
-  size_t index = 0;
-  // coin pos
-  observation[index++] = F4(static_cast<int16_t>(state.coin_pos.x * CELL_SIZE)).to_float() * x_norm;
-  observation[index++] = F4(static_cast<int16_t>(state.coin_pos.y * CELL_SIZE)).to_float() * y_norm;
-  // determine player state order based on who's observing (p1_perspective)
-  const Player &first = p1_perspective ? state.p1 : state.p2;
-  const Player &second = p1_perspective ? state.p2 : state.p1;
-  // first player pos
-  observation[index++] = first.x.to_float() * x_norm;
-  observation[index++] = first.y.to_float() * y_norm;
-  // first player vel
-  observation[index++] = first.x_vel.to_float() * x_vel_norm;
-  observation[index++] = first.y_vel.to_float() * y_vel_norm;
-  // players dead
-  observation[index++] = first.dead_timeout > 0 ? 1000.0f : 0.0f;
-  observation[index++] = second.dead_timeout > 0 ? 1000.0f : 0.0f;
-  // second player pos
-  observation[index++] = second.x.to_float() * x_norm;
-  observation[index++] = second.y.to_float() * y_norm;
-  // second player vel
-  observation[index++] = second.x_vel.to_float() * x_vel_norm;
-  observation[index++] = second.y_vel.to_float() * y_vel_norm;
-}
-
-int get_fitness(const GameState &state, bool p1_perspective) {
-  if (p1_perspective) {
-    return state.p1.score - state.p2.score;
-  } else {
-    return state.p2.score - state.p1.score;
-  }
-}
-
-JnBGame::JnBGame(const std::string &map_filename, int frame_limit) : frame_limit(frame_limit) {
+JnBGame::JnBGame(const std::string &map_filename, const Config &config) : config(config) {
   // load map
   state.map.load_from_file(map_filename);
+  state.players.resize(config.players);
 
   // load spritesheet
   spritesheet = std::make_shared<std::vector<uint8_t>>();
@@ -351,55 +297,76 @@ JnBGame::JnBGame(const std::string &map_filename, int frame_limit) : frame_limit
 
 void JnBGame::init(uint64_t seed) {
   // clear some things
-  state.p1 = {};
-  state.p2 = {};
+  for (auto &player : state.players) {
+    player = {};
+  }
   state.age = 0;
 
   // create rng from seed
   state.rng = std::mt19937(seed);
-  // pick random position for coin
-  state.coin_pos = get_random_spawn_pos(state.rng, state.map);
-  // pick random positions for p1, p2
-  std::uniform_int_distribution<int> spawn_index_dist(0, state.map.spawns.size() - 1);
-  auto spawn_index = spawn_index_dist(state.rng);
-  auto spawn = state.map.spawns[spawn_index];
-  state.p1.x = F4(static_cast<int16_t>(spawn.x * CELL_SIZE));
-  state.p1.y = F4(static_cast<int16_t>(spawn.y * CELL_SIZE));
-  auto spawn_index_2 = spawn_index_dist(state.rng);
-  // ensure p2 doesn't spawn on p1
-  // TODO: extend to coin logic? or is this needlessly complicated for FPGA impl?
-  if (spawn_index_2 == spawn_index) {
-    spawn_index_2 = (spawn_index + 1) % state.map.spawns.size();
+
+  // this is easier, and scales to multiple players.
+  auto shuffled_spawns = state.map.spawns;
+  std::shuffle(shuffled_spawns.begin(), shuffled_spawns.end(), state.rng);
+  assert(shuffled_spawns.size() >= state.players.size() + 1); // +1 for coin
+  // assign spawns to players
+  for (size_t i = 0; i < state.players.size(); ++i) {
+    auto tile_pos = shuffled_spawns[i];
+    state.players[i].x = F4(static_cast<int16_t>(tile_pos.x * CELL_SIZE));
+    state.players[i].y = F4(static_cast<int16_t>(tile_pos.y * CELL_SIZE));
   }
-  spawn = state.map.spawns[spawn_index_2];
-  state.p2.x = F4(static_cast<int16_t>(spawn.x * CELL_SIZE));
-  state.p2.y = F4(static_cast<int16_t>(spawn.y * CELL_SIZE));
+  // grab next spawn for coin
+  state.coin_pos = shuffled_spawns[state.players.size()];
 }
 
 void JnBGame::update(const std::vector<std::vector<float>> &actions) {
-  assert(actions.size() == 2); // this version of JnB is strictly 2 player (for now).
-
   // discretize actions
-  PlayerInput in1, in2;
-  in1.left = actions[0][0] > 0;
-  in1.right = actions[0][1] > 0;
-  in1.jump = actions[0][2] > 0;
-  in2.left = actions[1][0] > 0;
-  in2.right = actions[1][1] > 0;
-  in2.jump = actions[1][2] > 0;
+  std::vector<PlayerInput> inputs;
+  inputs.resize(state.players.size());
+  for (size_t i = 0; i < state.players.size(); ++i) {
+    inputs[i].left = actions[i][0] > 0;
+    inputs[i].right = actions[i][1] > 0;
+    inputs[i].jump = actions[i][2] > 0;
+  }
 
   // update game state
   // updating can happen in parallel in FPGA
-  auto p1_phases = make_player_phases(state.p1, state);
-  auto p2_phases = make_player_phases(state.p2, state);
+  // auto p1_phases = make_player_phases(state.p1, state);
+  // auto p2_phases = make_player_phases(state.p2, state);
+  std::vector<std::vector<std::function<void(Player &, size_t p_index, const std::vector<Player> &,
+                                             const PlayerInput &, std::uint8_t &)>>>
+      players_phases;
+  players_phases.reserve(state.players.size());
+  for (size_t i = 0; i < state.players.size(); ++i) {
+    players_phases.push_back(make_player_phases(state.players[i], state));
+  }
 
   // run each phase for each player
-  bool p1_coin_collected = false;
-  bool p2_coin_collected = false;
-  for (int i = 0; i < p1_phases.size(); ++i) {
+  // bool p1_coin_collected = false;
+  // bool p2_coin_collected = false;
+
+  // this can't be a vec of bool because c++ has a specialized bit-packing implementation that
+  // prevents refs to elems
+  std::vector<std::uint8_t> players_coin_collected;
+  players_coin_collected.resize(state.players.size(), false);
+  for (int phase_i = 0; phase_i < players_phases[0].size(); ++phase_i) {
     // these can be concurrent on FPGA
-    p1_phases[i](state.p1, state.p2, in1, p1_coin_collected);
-    p2_phases[i](state.p2, state.p1, in2, p2_coin_collected);
+    // p1_phases[i](state.p1, state.p2, in1, p1_coin_collected);
+    // p2_phases[i](state.p2, state.p1, in2, p2_coin_collected);
+    // TODO: htis is wrong. rewrite phase to accept array first.
+    // for (auto &player_phases : players_phases) {
+    //   player_phases[i](state.players[i], state.players[(i + 1) % state.players.size()],
+    //   inputs[i],
+    //                    players_coin_collected[i]);
+    // }
+
+    for (size_t player_index = 0; player_index < state.players.size(); ++player_index) {
+      // run the phase for this player
+      auto &phase = players_phases[player_index][phase_i];
+      // pass in the player, index, other players, input, and coin collected flag
+      phase(state.players[player_index], player_index, state.players, inputs[player_index],
+            players_coin_collected[player_index]);
+    }
   }
 
   // some other ideas: maybe the player could place a temporary ground tile
@@ -410,27 +377,125 @@ void JnBGame::update(const std::vector<std::vector<float>> &actions) {
   // if the coin was collected,
   // pick a new location from the valid coin spawn locations randomly.
   // this must happen on a new cycle, so the number of cycles on fpga is phases.size() + 1
-  if (p1_coin_collected || p2_coin_collected) {
-    state.coin_pos = get_random_spawn_pos(state.rng, state.map);
+  // if (p1_coin_collected || p2_coin_collected) {
+  //   state.coin_pos = get_random_spawn_pos(state.rng, state.map);
+  // }
+  for (size_t player_index = 0; player_index < state.players.size(); ++player_index) {
+    if (players_coin_collected[player_index]) {
+      state.coin_pos = get_random_spawn_pos(state.rng, state.map);
+    }
   }
   ++state.age;
 }
 
 void JnBGame::get_fitness(std::vector<int32_t> &fitness) {
-  if (fitness.size() != 2) {
-    fitness.resize(2);
+  if (fitness.size() != get_player_count())
+    fitness.resize(get_player_count());
+  for (size_t i = 0; i < get_player_count(); ++i) {
+    // can't call prior get_fitness due to namespace conflict i think
+    fitness[i] = state.players[i].score;
   }
-  fitness[0] = state.p1.score - state.p2.score;
-  fitness[1] = state.p2.score - state.p1.score;
 }
 
 bool JnBGame::is_done() {
-  return frame_limit > 0 && state.age >= frame_limit;
+  return config.frame_limit > 0 && state.age >= config.frame_limit;
 }
 
 void JnBGame::observe(std::vector<obs::Simple> &inputs) {
-  observe_state_simple(state, inputs[0], true);
-  observe_state_simple(state, inputs[1], false);
+  const float x_norm = 1.0f / (state.map.width * CELL_SIZE);
+  const float y_norm = 1.0f / (state.map.height * CELL_SIZE);
+  const float x_vel_norm = 1.0f / (MOVE_MAX_VEL.to_float());
+  const float y_vel_norm = 1.0f / (-FALL_MAX_VEL.to_float());
+
+  inputs.resize(state.players.size());
+  for (size_t player = 0; player < state.players.size(); ++player) {
+    size_t fourier_index = 0;
+    std::vector<float> fourier;
+    auto &observation = inputs[player];
+    observation.clear();
+
+    // determine player state order based on who's observing (p1_perspective)
+    const Player &us = state.players[player];
+
+    size_t index = 0;
+    // coin pos
+    observation.push_back(state.coin_pos.x * CELL_SIZE * x_norm);
+    observation.push_back(state.coin_pos.y * CELL_SIZE * y_norm);
+    if (config.fourier_transforms.size() > 0) {
+      config.fourier_transforms[fourier_index++ % config.fourier_transforms.size()](
+          state.coin_pos.x * CELL_SIZE * x_norm, fourier);
+      for (auto &f : fourier) {
+        observation.push_back(f);
+      }
+      config.fourier_transforms[fourier_index++ % config.fourier_transforms.size()](
+          state.coin_pos.y * CELL_SIZE * y_norm, fourier);
+      for (auto &f : fourier) {
+        observation.push_back(f);
+      }
+    }
+    // sign(coin - player)
+    if (config.use_position_delta_inputs) {
+      observation.push_back(
+          (state.coin_pos.x * CELL_SIZE + CELL_SIZE / 2) - (us.x.to_float()) > 0 ? 1.0f : -1.0f);
+      observation.push_back(
+          (state.coin_pos.y * CELL_SIZE + CELL_SIZE / 2) - (us.y.to_float()) > 0 ? 1.0f : -1.0f);
+    }
+
+    // first player pos
+    observation.push_back(us.x.to_float() * x_norm);
+    observation.push_back(us.y.to_float() * y_norm);
+    if (config.fourier_transforms.size() > 0) {
+      config.fourier_transforms[fourier_index++ % config.fourier_transforms.size()](
+          us.x.to_float() * x_norm, fourier);
+      for (auto &f : fourier) {
+        observation.push_back(f);
+      }
+      config.fourier_transforms[fourier_index++ % config.fourier_transforms.size()](
+          us.y.to_float() * y_norm, fourier);
+      for (auto &f : fourier) {
+        observation.push_back(f);
+      }
+    }
+    // first player vel
+    observation.push_back(us.x_vel.to_float() * x_vel_norm);
+    observation.push_back(us.y_vel.to_float() * y_vel_norm);
+    // TODO: fourier transform? or just scale this up?
+    // players dead
+    observation.push_back(us.dead_timeout > 0 ? 1.0f : -1.0f);
+    // iterate through remaining players
+    for (size_t other_player_index = 0; other_player_index < state.players.size();
+         ++other_player_index) {
+      if (other_player_index == player)
+        continue;
+      const Player &other = state.players[other_player_index];
+
+      // other player pos
+      observation.push_back(other.x.to_float() * x_norm);
+      observation.push_back(other.y.to_float() * y_norm);
+      if (config.fourier_transforms.size() > 0) {
+        config.fourier_transforms[fourier_index++ % config.fourier_transforms.size()](
+            other.x.to_float() * x_norm, fourier);
+        for (auto &f : fourier) {
+          observation.push_back(f);
+        }
+        config.fourier_transforms[fourier_index++ % config.fourier_transforms.size()](
+            other.y.to_float() * y_norm, fourier);
+        for (auto &f : fourier) {
+          observation.push_back(f);
+        }
+      }
+      // sign(other - us)
+      if (config.use_position_delta_inputs) {
+        observation.push_back(other.x.to_float() - us.x.to_float() > 0 ? 1.0f : -1.0f);
+        observation.push_back(other.y.to_float() - us.y.to_float() > 0 ? 1.0f : -1.0f);
+      }
+      // other player vel
+      observation.push_back(other.x_vel.to_float() * x_vel_norm);
+      observation.push_back(other.y_vel.to_float() * y_vel_norm);
+      // players dead
+      observation.push_back(other.dead_timeout > 0 ? 1.0f : -1.0f);
+    }
+  }
 }
 
 void JnBGame::render(std::vector<uint32_t> &pixels) {
@@ -446,29 +511,38 @@ void JnBGame::render(std::vector<uint32_t> &pixels) {
                        static_cast<int>(Tile::COIN) - 1);
 
   // draw players
-  // p1 is light red
-  int32_t p1_col = rendering::make_color(255, 80, 80, 255);
-  if (state.p1.dead_timeout == 0)
-    rendering::draw_rect(pixels, get_resolution(), state.p1.x.to_integer_floor(),
-                         state.map.height * CELL_SIZE - state.p1.y.to_integer_floor() -
-                             PLAYER_HEIGHT,
-                         PLAYER_WIDTH, PLAYER_HEIGHT, p1_col);
+  // generate evenly-spaced colors for the players.
+  std::vector<std::uint32_t> colors;
+  colors.reserve(state.players.size());
 
-  // p2 is light blue
-  int32_t p2_col = rendering::make_color(80, 80, 255, 255);
-  if (state.p2.dead_timeout == 0)
-    rendering::draw_rect(pixels, get_resolution(), state.p2.x.to_integer_floor(),
-                         state.map.height * CELL_SIZE - state.p2.y.to_integer_floor() -
-                             PLAYER_HEIGHT,
-                         PLAYER_WIDTH, PLAYER_HEIGHT, p2_col);
-
-  // draw score
-  for (int i = 0; i < std::min(state.p1.score, state.map.width * CELL_SIZE); ++i) {
-    pixels[i] = p1_col;
+  for (size_t i = 0; i < state.players.size(); ++i) {
+    float h = 360.0f * static_cast<float>(i) / state.players.size();
+    constexpr float s = 0.9f;
+    constexpr float l = 0.5f;
+    auto rgb = color::hsl_to_rgb<std::uint8_t>(h, s, l);
+    colors.push_back(rendering::make_color(rgb[0], rgb[1], rgb[2], 255));
   }
-  for (int i = 0; i < std::min(state.p2.score, state.map.width * CELL_SIZE); ++i) {
-    // pixels[(((state.map.width) * CELL_SIZE) * 2 - i - 1)] = p2_col;
-    pixels[i + state.map.width * CELL_SIZE] = p2_col;
+
+  // draw players
+  for (size_t i = 0; i < state.players.size(); ++i) {
+    const auto &player = state.players[i];
+    const auto color = colors[i];
+    if (player.dead_timeout == 0) {
+      rendering::draw_rect(pixels, get_resolution(), player.x.to_integer_floor(),
+                           state.map.height * CELL_SIZE - player.y.to_integer_floor() -
+                               PLAYER_HEIGHT,
+                           PLAYER_WIDTH, PLAYER_HEIGHT, color);
+    }
+  }
+
+  // draw scores
+  // TODO: make hud slightly transparent
+  for (size_t i = 0; i < state.players.size(); ++i) {
+    const auto &player = state.players[i];
+    const auto color = colors[i];
+    for (int px = 0; px < std::min(player.score, state.map.width * CELL_SIZE); ++px) {
+      pixels[px + i * state.map.width * CELL_SIZE] = color;
+    }
   }
 }
 

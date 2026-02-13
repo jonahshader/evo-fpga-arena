@@ -11,20 +11,19 @@
 namespace model {
 
 // Covers all the possible parameter types that models use. Add more as needed.
-using ParamSpan = std::variant<std::span<float>, std::span<int8_t>>;
+using ParamSpan = std::variant<std::span<float>, std::span<int8_t>, std::span<int16_t>>;
+using ParamVec = std::variant<std::vector<float>, std::vector<int8_t>, std::vector<int16_t>>;
 
-// TODO: Might be able to have a CoreModel that has everything but the
-// template stuff, then have Model extend CoreModel and add the template stuff.
-// that way, stuff that doesn't need the templated functions can just take in
-// a CoreModel instead of the complicated Model<ObsType> type. an example of
-// a beneficiary is the crossover functions, which at the highest level
-// take in two solutions and spit out a model, where all three are templated.
-// these functions only care about getting the spans of the models, which
-// doesn't require templates. 
-template <typename ObsType>
-class Model {
+using ParamSpans = std::vector<ParamSpan>;
+using ParamVecs = std::vector<ParamVec>;
+
+// this has been split into a non-templated base model, and a complete, templated model.
+// this lets parts of the codebase avoid unnecessary templating if the templated function aren't
+// needed.
+
+class BaseModel {
 public:
-  virtual ~Model() = default;
+  virtual ~BaseModel() = default;
 
   virtual void mutate(std::mt19937 &rng, float mutation_rate) {}
   // reset internal state. used when a model has recurrent connections or is otherwise stateful in
@@ -33,15 +32,21 @@ public:
   virtual bool is_stateful() const {
     return false;
   }
+  virtual std::string get_name() const = 0;
+  virtual ParamSpans get_spans() {
+    return {};
+  };
+  virtual void apply_spans() {};
+  virtual std::shared_ptr<BaseModel> base_clone() const = 0;
+};
+
+template <typename ObsType>
+class Model : public BaseModel {
+public:
   // sample_observation is purely just for the model to see the shape of a sample
   virtual void init(const ObsType &sample_observation, size_t output_size, std::mt19937 &rng) {}
   virtual void forward(const ObsType &observation, std::vector<float> &action) {}
   virtual std::shared_ptr<Model<ObsType>> clone() const = 0;
-  virtual std::string get_name() const = 0;
-  virtual std::vector<ParamSpan> get_spans() {
-    return {};
-  };
-  virtual void apply_spans() {};
 };
 
 } // namespace model

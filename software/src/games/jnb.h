@@ -8,9 +8,10 @@
 #include <vector>
 
 #include "fixed_point.h"
-#include "parse_map.h"
 #include "game.h"
 #include "observation_types.h"
+#include "parse_map.h"
+#include "nn_utils.h"
 
 namespace jnb {
 
@@ -63,8 +64,7 @@ struct Player {
 
 struct GameState {
   TileMap map{};
-  Player p1{};
-  Player p2{};
+  std::vector<Player> players{};
   TilePos coin_pos{0, 0};
   std::mt19937 rng{0};
   uint32_t age{0};
@@ -76,17 +76,22 @@ struct PlayerInput {
   bool jump{false};
 };
 
-void observe_state_simple(const GameState &state, std::vector<F4> &observation,
-                          bool p1_perspective);
-void observe_state_simple(const GameState &state, std::vector<float> &observation,
-                          bool p1_perspective);
-int get_fitness(const GameState &state, bool p1_perspective);
+struct Config {
+  size_t players{1}; // -1 signifies unlimited
+  int frame_limit{300};
+  bool use_position_delta_inputs{true};
+  std::vector<FloatToVec> fourier_transforms{};
+};
+
+// void observe_state_simple(const GameState &state, std::vector<F4> &observation, int player);
+// void observe_state_simple(const GameState &state, std::vector<float> &observation, int player);
+int get_fitness(const GameState &state, int player);
 // void observe_state_screen(const GameState &state, std::vector<uint8_t> &observation);
 
 class JnBGame : public Game<obs::Simple> {
 public:
   // negative frame_limit means unlimited
-  JnBGame(const std::string &map_filename, int frame_limit = 400);
+  JnBGame(const std::string &map_filename, const Config &config);
 
   void init(uint64_t seed) override;
   void update(const std::vector<std::vector<float>> &actions);
@@ -94,21 +99,12 @@ public:
   bool is_done() override;
   void observe(std::vector<obs::Simple> &inputs) override;
 
-  std::vector<obs::Simple> build_observation() override {
-    std::vector<obs::Simple> obs;
-    obs.resize(get_player_count());
-    for (size_t i = 0; i < get_player_count(); ++i) {
-      obs[i].resize(SIMPLE_INPUT_COUNT);
-    }
-    return obs;
-  }
-
   size_t get_action_count() override {
     return 3;
   }
 
   size_t get_player_count() override {
-    return 2;
+    return state.players.size();
   }
 
   std::string get_name() override {
@@ -118,9 +114,7 @@ public:
   void render(std::vector<uint32_t> &pixels) override;
   std::pair<int, int> get_resolution() override;
   std::unique_ptr<Game<obs::Simple>> clone() const override {
-    auto new_game = std::make_unique<JnBGame>(*this);
-    new_game->state = state;
-    return new_game;
+    return std::make_unique<JnBGame>(*this);
   }
 
   // game state is public for PL interop
@@ -130,7 +124,7 @@ private:
   // resources
   std::shared_ptr<std::vector<uint8_t>> spritesheet{nullptr};
 
-  int frame_limit;
+  Config config;
 };
 
 } // namespace jnb

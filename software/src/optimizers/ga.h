@@ -8,10 +8,7 @@
 
 namespace ga {
 
-// wrapping in anonymous namespace makes usage private to this file.
-namespace {
 using model::Model;
-}
 
 // a struct to keep track of various fitness values associated with a model
 template <typename ObsType>
@@ -48,6 +45,11 @@ using Fitness =
 template <typename ObsType>
 using Logger = std::function<void(size_t current_gen, const Population<ObsType> &pop)>;
 
+// Preview callback - receives models for multiplayer game preview
+template <typename ObsType>
+using PreviewCallback =
+    std::function<void(std::shared_ptr<std::vector<std::shared_ptr<Model<ObsType>>>>)>;
+
 enum SeedChange { NEVER, PER_GEN };
 
 template <typename ObsType>
@@ -78,6 +80,9 @@ struct Config {
   SeedChange seed_change{NEVER};
   PriorBestSelect<ObsType> prior_best_select{nullptr};
   Logger<ObsType> fitness_logger{nullptr};
+
+  // Preview settings
+  PreviewCallback<ObsType> preview_callback{nullptr};
 };
 
 template <typename ObsType>
@@ -90,7 +95,7 @@ void init(State<ObsType> &state, const Config<ObsType> &config) {
 
   // build initial population
   for (int i = 0; i < config.population_size; ++i) {
-    state.current.emplace_back(Solution{config.model_builder(state.rng), 0});
+    state.current.emplace_back(Solution{config.model_builder(state.rng)});
   }
 
   // prior best starts off with random models
@@ -131,6 +136,35 @@ void step(State<ObsType> &state, const Config<ObsType> &config) {
     config.fitness_logger(state.gen, state.current);
   }
 
+  // update preview with available models
+  if (config.preview_callback) {
+    auto preview_models = std::make_shared<std::vector<std::shared_ptr<Model<ObsType>>>>();
+
+    // Get the best model from current generation (reusing existing logic)
+    if (!state.current.empty()) {
+      // This mirrors the logic in best_prior_best from ga_funs.h
+      auto best = state.current[0];
+      for (const auto &sol : state.current) {
+        if (sol.fitness > best.fitness) {
+          best = sol;
+        }
+      }
+      preview_models->push_back(best.model);
+    }
+
+    // Add prior_best models
+    for (auto &model : state.prior_best) {
+      preview_models->push_back(model);
+    }
+
+    // Add reference models
+    for (auto &model : state.references) {
+      preview_models->push_back(model);
+    }
+
+    config.preview_callback(preview_models);
+  }
+
   // create the next population
   state.next.clear();
   config.populate_fun(state.current, state.next, state.rng);
@@ -147,10 +181,11 @@ void step(State<ObsType> &state, const Config<ObsType> &config) {
   }
 
   // add to prior best
-  if (state.gen % config.prior_best_interval == 0) {
+  if (config.prior_best_select && config.prior_best_size > 0 &&
+      state.gen % config.prior_best_interval == 0) {
     auto best = config.prior_best_select(state.next, state.rng);
     // push best, pop oldest
-    state.prior_best.push_back(best.model);
+    state.prior_best.push_back(best.model->clone());
     state.prior_best.erase(state.prior_best.begin());
   }
 

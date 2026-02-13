@@ -1,23 +1,26 @@
-#include <string>
 #include <cstring>
 #include <memory>
-#include <vector>
 #include <random>
+#include <string>
+#include <vector>
 
+#include "games/seek.h"
 #include "jnb_render.h"
+#include "lodepng.h"
 #include "models/human.h"
-#include "models/mlp_simple.h"
 #include "models/mlp_map_lut.h"
+#include "models/mlp_simple.h"
 #include "models/pl_nn_model.h"
+#include "nn_utils.h"
+#include "observation_types.h"
 #include "optimizers/simple.h"
 #include "pixel_game.h"
-#include "lodepng.h"
 #include "play.h"
-#include "observation_types.h"
+#include "preview.h"
 #include "training.h"
 
 int main(int argc, char *argv[]) {
-  std::string map_file = "jnb_map_tb.tmx"; // default map file
+  std::string map_file = "jnb_map3.tmx"; // default map file
 
   // parse command line arguments
   for (int i = 1; i < argc; i++) {
@@ -30,104 +33,64 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  train_crossover_example(map_file);
+  // train_crossover_example(map_file);
 
-  // // load map
-  // jnb::TileMap map;
-  // map.load_from_file(map_file);
-
-  // {
-  //   // human vs randomly init model
-  //   std::mt19937 rng(0);
-
-  //   auto p1 = std::make_shared<jnb::HumanModel>();
-  //   // auto p2 = std::make_shared<jnb::HumanModel>();
-  //   // auto p2 = std::make_shared<jnb::SimpleMLP>(rng);
-  //   // auto p2 = std::make_shared<jnb::MLPMapLutModel>(rng, map.width, map.height);
-  //   auto p2 = std::make_shared<jnb::PLNNModel>(rng);
-
-  //   // jnb::run_game(map_file.c_str(), 0);
-  //   jnb::run_game_with_models(map_file, 0, p1, p2);
+  std::mt19937 rng(0);
+  // auto fourier = make_gaussian_random_fourier_transform(rng, 1.0f, 4);
+  // std::vector<float> fourier_tranform;
+  // fourier(1.0f, fourier_tranform);
+  // for (auto f : fourier_tranform) {
+  //   std::cout << f << " ";
   // }
+  // std::cout << std::endl;
+  // fourier(1.5f, fourier_tranform);
+  // for (auto f : fourier_tranform) {
+  //   std::cout << f << " ";
+  // }
+  std::vector<FloatToVec> fourier_transforms;
+  std::mt19937 temp_rng(324);
+  fourier_transforms.push_back(make_gaussian_random_fourier_transform(temp_rng, 2.0f, 3));
+  // auto game =
+  //     std::make_shared<jnb::JnBGame>(map_file, jnb::Config(1, 4800, true, fourier_transforms));
 
-  // // make players
-  // std::mt19937 rng(0);
-  // std::vector<std::shared_ptr<model::Model<obs::Simple>>> players;
+  // auto game = std::make_shared<jnb::JnBGame>(map_file, jnb::Config(1, 4800, true, {}));
+  ContinuousSeek::Config conf;
+  // conf.absolute_inputs = false;
+  conf.frame_limit = 120;
+  conf.friction = 10;
+  conf.dt = 1 / 30.0f;
+  auto game = std::make_shared<ContinuousSeek>(conf);
+  conf.frame_limit = 120;
+  auto preview_game = std::make_shared<ContinuousSeek>(conf);
+
+  // auto trained_sol = train_openai(game);
+  auto [update_callback, start_preview, stop_preview] = create_preview<obs::Simple>(preview_game);
+  start_preview();
+  auto trained_sol = train_1_player_example(game, update_callback);
+  // auto trained_sol = train_openai(game, update_callback);
+
+  std::cout << "Final trained model performance: " << trained_sol.fitness << std::endl;
+
+  // make players
+
+  std::cout << std::endl;
+  std::vector<std::shared_ptr<model::Model<obs::Simple>>> players;
   // players.emplace_back(std::make_shared<model::Keyboard<obs::Simple>>());
-  // // players.emplace_back(std::make_shared<model::Keyboard<obs::Simple>>());
-  // auto test_mlp = std::make_shared<model::SimpleMLP>(rng, 32, 2);
-  // players.emplace_back(test_mlp);
+  players.push_back(trained_sol.model);
 
-  // // make game
-  // jnb::JnBGame game(map_file, -1); // framelimit of -1 means run forever
-  // std::vector<std::vector<float>> sample_observations = game.build_observation();
-  // test_mlp->init(sample_observations[0], game.get_action_count(), rng);
-  // game.init(123);
-  // // play game
-  // play_and_render(game, players);
-
-  // jnb::run_on_pl(map_file);
-
-  // std::shared_ptr<jnb::Model> trained;
-  // {
-  //   // train a model, then play against it
-  //   jnb::GAConfig config{};
-  //   config.seed = 5;
-  //   config.select_fun = jnb::make_tournament(4);
-  //   config.reference_count = 2;
-  //   config.model_history_size = 4;
-  //   config.model_history_interval = 2;
-  //   config.population_size = 128;
-  //   config.mutation_rate = 0.03;
-  //   config.max_gen = 128;
-  //   jnb::EvalConfig eval_config{};
-  //   eval_config.frame_limit = 900;
-  //   eval_config.seed_count = 4;
-
-  //   // lambda that spits out a randomly init model
-  //   auto model_builder = [width = map.width,
-  //                         height = map.height](std::mt19937 &rng) -> std::shared_ptr<jnb::Model>
-  //                         {
-  //     static int model_type = 0;
-
-  //     // model_type = (model_type + 1) % 3;
-  //     // switch (model_type) {
-  //     //   case 0:
-  //     //     return std::make_shared<jnb::SimpleMLP>(rng);
-  //     //     break;
-  //     //   case 1:
-  //     //     return std::make_shared<jnb::MLPMapLutModel>(rng, width, height);
-  //     //     break;
-  //     //   case 2:
-  //     //     return std::make_shared<jnb::PLNNModel>(rng);
-  //     //     break;
-  //     //   default:
-  //     //     return std::make_shared<jnb::SimpleMLP>(rng);
-  //     //     break;
-  //     // }
-  //     return std::make_shared<jnb::PLNNModel>(rng);
-  //   };
-
-  //   jnb::GAState ga_state;
-  //   jnb::init_state(ga_state, map, config, model_builder);
-
-  //   // train
-  //   jnb::ga_simple(ga_state, config, eval_config);
-
-  //   // play against it
-  //   auto p1 = std::make_shared<jnb::HumanModel>();
-  //   // auto p1 = ga_state.current[0].model->clone();
-  //   trained = ga_state.current[0].model->clone(); // grab a copy of the best model
-
-  //   jnb::run_game_with_models(map_file, 0, p1, trained);
+  // conf.frame_limit *= 10;
+  // game = std::make_shared<ContinuousSeek>(conf);
+  // std::uint64_t seed = 123;
+  // while (true) {
+  //   game->init(seed++);
+  //   // play game
+  //   play_and_render(*game, players);
   // }
 
-  // {
-  //   // have it play against itself
-  //   auto p2 = trained->clone();
+  while (true) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
 
-  //   jnb::run_game_with_models(map_file, 0, trained, p2);
-  // }
-
+  stop_preview();
   return 0;
 }
