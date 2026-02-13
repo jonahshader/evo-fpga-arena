@@ -8,3 +8,7 @@ game_test
 vunit_out
 build
 *.dat
+*.bit
+*.bit.bin
+*.bit.prm
+software/imgui.ini

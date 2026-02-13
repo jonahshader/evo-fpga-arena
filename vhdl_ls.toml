@@ -1,0 +1,14 @@
+standard = "2019"
+
+[libraries]
+defaultlib.files = [
+  'fpga/src/**/*.vhd',
+  'fpga/sim/**/*.vhd',
+  'fpga/tb/**/*.vhd',
+  'fpga/verilator_tops/**/*.vhd',
+]
+
+vunit_lib.files = [
+  '.venv/lib/python3.12/site-packages/vunit/vhdl/**/*.vhd',
+]
+vunit_lib.is_third_party = true

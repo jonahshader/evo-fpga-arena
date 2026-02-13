@@ -43,6 +43,52 @@ sudo apt install make
 
 For Windows, follow the instructions from their website.
 
+## Zed
+
+Zed has built-in support for EditorConfig and C++ (via clangd), so those work out of the box.
+
+### VHDL Support
+
+Install the [zed-vhdl](https://github.com/rapgenic/zed-vhdl) extension from the Zed extension marketplace for syntax highlighting.
+
+For LSP features (go-to-definition, hover, diagnostics), install [vhdl_ls](https://github.com/VHDL-LS/rust_hdl):
+
+1. Install via cargo:
+
+    ```sh
+    cargo install vhdl_ls
+    ```
+
+2. The standard VHDL libraries are **not** included when installing via cargo. Download the latest release archive from [GitHub releases](https://github.com/VHDL-LS/rust_hdl/releases), extract the `vhdl_libraries/` directory, and copy it to the parent directory of the binary:
+
+    ```sh
+    # Download and extract the release (adjust version as needed)
+    gh release download v0.86.0 --repo VHDL-LS/rust_hdl --pattern "*linux-gnu.zip" --dir /tmp/vhdl_ls_release
+    unzip /tmp/vhdl_ls_release/vhdl_ls-x86_64-unknown-linux-gnu.zip -d /tmp/vhdl_ls_release
+    cp -r /tmp/vhdl_ls_release/vhdl_ls-x86_64-unknown-linux-gnu/vhdl_libraries ~/.cargo/
+    ```
+
+3. Add the following to your Zed settings (`~/.config/zed/settings.json`):
+
+    ```json
+    {
+      "languages": {
+        "VHDL": {
+          "language_servers": ["vhdl_ls"]
+        }
+      },
+      "lsp": {
+        "vhdl_ls": {
+          "binary": {
+            "path": "<home>/.cargo/bin/vhdl_ls"
+          }
+        }
+      }
+    }
+    ```
+
+The project already includes a `vhdl_ls.toml` at the repo root that configures library paths for the language server.
+
 ## Simulation
 
 To compile the simulation, run the following in `bash` or `powershell`:
