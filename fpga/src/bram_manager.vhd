@@ -27,7 +27,7 @@ entity bram_manager is
     mutation_rate : in mutation_rate_t;
 
     param            : out param_t       := (others => '0');
-    param_index      : out param_index_t := to_unsigned(0, 14);
+    param_index      : out param_index_t := (others => '0');
     param_valid_nn_1 : out boolean       := false;
     param_valid_nn_2 : out boolean       := false;
     param_valid_dump : out boolean       := false;

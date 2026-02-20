@@ -67,7 +67,13 @@ begin
       pg_gs              => pg_gs,
       transmit_gs        => transmit_gs,
       ga_state           => ga_state,
-      ga_state_send      => ga_state_send
+      ga_state_send      => ga_state_send,
+
+      db_bram_dump             => false,
+      db_bram_dump_index       => (others => '0'),
+      db_bram_dump_param       => open,
+      db_bram_dump_param_index => open,
+      db_bram_dump_param_valid => open
     );
 
   test_process : process is

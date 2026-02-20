@@ -6,9 +6,11 @@ obj_dir
 *.v
 game_test
 vunit_out
+test_data
 build
 *.dat
 *.bit
 *.bit.bin
 *.bit.prm
 software/imgui.ini
+__pycache__/

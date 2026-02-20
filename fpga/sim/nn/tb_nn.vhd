@@ -5,117 +5,101 @@ context vunit_lib.vunit_context;
 
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
-use ieee.fixed_pkg.all;
-use ieee.fixed_float_types.all;
+use std.textio.all;
 
 use work.nn_types.all;
 use work.bram_types.all;
-use work.game_types.all;
 use work.decoder_funs.all;
 
 entity tb_nn is
   generic (
-    RUNNER_CFG : string
+    RUNNER_CFG  : string;
+    input_path  : string := "";
+    output_path : string := ""
   );
 end entity tb_nn;
 
-architecture tb_arch of tb_nn is
-
-  constant CLK_100MHZ_PERIOD : time := 10 ns;
-
-  signal clk : std_logic := '0';
-
-  -- inputs
-  signal param       : param_t       := (others => '0');
-  signal param_index : param_index_t := (others => '0');
-  signal param_valid : boolean       := false;
-
-  signal gs             : gamestate_t := default_gamestate_t;
-  signal p1_perspective : boolean     := false; -- should this be set to true?
-  signal go             : boolean     := false;
-
-  -- outputs
-  signal action : playerinput_t;
-  signal done   : boolean;
+architecture tb of tb_nn is
 
 begin
 
-  -- Timeout after 125 us.
-  test_runner_watchdog(runner, 125 us);
-
-  clk <= not clk after CLK_100MHZ_PERIOD / 2;
-
-  -- UUT instantiation
-  uut : entity work.nn
-    port map (
-      clk            => clk,
-      param          => param,
-      param_index    => param_index,
-      param_valid    => param_valid,
-      gs             => gs,
-      p1_perspective => p1_perspective,
-      action         => action,
-      go             => go,
-      done           => done
-    );
-
-  -- Test process
   test_process : process is
 
-    variable layer_index  : integer := 0;
-    variable neuron_index : integer := 0;
-    variable weight_index : integer := 0;
+    variable layers       : layers_t        := default_layers_t;
+    variable logits       : neuron_logits_t := default_neuron_logits_t;
+    variable input_logits : neuron_logits_t := default_neuron_logits_t;
+
+    file f    : text;
+    variable l   : line;
+    variable val : integer;
 
   begin
     test_runner_setup(runner, RUNNER_CFG);
 
     while test_suite loop
-      wait until rising_edge(clk);
+      if run("forward_pass") then
+        check(input_path /= "", "input_path generic must be set");
 
-      for i in 0 to TOTAL_WEIGHTS - 1 loop
-        param       <= "0001";
-        param_valid <= true;
-        param_index <= to_unsigned(i, param_index'length);
-        wait until rising_edge(clk);
-      end loop;
+        -- Read params and decode into layers
+        layers := default_layers_t;
+        file_open(f, input_path & "params.txt", read_mode);
 
-      if run("ones") then
-        wait until rising_edge(clk);
-        go <= true;
-        wait until rising_edge(clk);
-        go <= false;
+        for i in 0 to TOTAL_PARAMS - 1 loop
+          readline(f, l);
+          read(l, val);
+          layers := decode_address(
+              layers,
+              std_logic_vector(to_unsigned(val, 4)),
+              to_unsigned(i, BRAM_ADDR_BITS)
+            );
+        end loop;
 
-        wait until done;
-        -- neural net has positive inputs with positive weights,
-        -- so all outputs should be high, meaning the actions should be true,
-        -- because they are true when output > 0
-        check_equal(action.left, true, "Left action incorrect output.");
-        check_equal(action.right, true, "Right action incorrect output.");
-        check_equal(action.jump, true, "Jump action incorrect output.");
-      elsif run("ones_inv_dead_counter") then
-        gs.p1.dead_timeout <= to_unsigned(1, gs.p1.dead_timeout'length);
-        wait until rising_edge(clk);
-        go                 <= true;
-        wait until rising_edge(clk);
-        go                 <= false;
+        file_close(f);
 
-        wait until done;
-        wait until rising_edge(clk);
+        -- Read input logits
+        input_logits := default_neuron_logits_t;
+        file_open(f, input_path & "input_logits.txt", read_mode);
 
-        -- we have positive 32 and negative 32 inputs, which should cancel
-        -- each other out, resulting in 0, so our actions should be false.
-        check_equal(action.left, false, "Left action incorrect output.");
-        check_equal(action.right, false, "Right action incorrect output.");
-        check_equal(action.jump, false, "Jump action incorrect output.");
+        for i in 0 to WEIGHTS_PER_NEURON - 1 loop
+          readline(f, l);
+          read(l, val);
+          input_logits(i) := to_signed(val, NEURON_DATA_WIDTH);
+        end loop;
+
+        file_close(f);
+
+        -- Forward pass (matching nn.vhd main_proc)
+        logits := layer_forward(layers(0), input_logits, true);
+
+        for layer_i in 1 to LAYER_COUNT - 2 loop
+          logits := layer_forward(layers(layer_i), logits, true);
+        end loop;
+
+        logits := layer_forward(layers(LAYER_COUNT - 1), logits, false);
+
+        -- Write output
+        file_open(f, output_path & "output.txt", write_mode);
+
+        for i in 0 to 2 loop
+          write(l, to_integer(logits(i)));
+          writeline(f, l);
+        end loop;
+
+        -- Write actions as 1/0
+        for i in 0 to 2 loop
+          if logits(i) > 0 then
+            write(l, 1);
+          else
+            write(l, 0);
+          end if;
+          writeline(f, l);
+        end loop;
+
+        file_close(f);
       end if;
-
-      wait until rising_edge(clk);
-      wait until rising_edge(clk);
-      wait until rising_edge(clk);
-      wait until rising_edge(clk);
     end loop;
 
     test_runner_cleanup(runner);
   end process;
 
-end architecture tb_arch;
+end architecture tb;

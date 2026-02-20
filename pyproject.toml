@@ -6,3 +6,49 @@ requires-python = ">=3.12"
 dependencies = [
     "vunit-hdl>=4.7.1",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14.13",
+    "ty>=0.0.12",
+    "vulture>=2.14",
+]
+
+[tool.ruff]
+indent-width = 2
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "ANN", # flake8-annotations
+]
+ignore = [
+  "E731",   # lambdas are fine for FP-style composition
+]
+
+[tool.ruff.lint.flake8-annotations]
+allow-star-arg-any = false
+ignore-fully-untyped = false
+suppress-none-returning = true
+
+[tool.ruff.format]
+indent-style = "space"
+
+[tool.ty.rules]
+# Upgrade warnings to errors for strict mode
+ambiguous-protocol-member = "error"
+deprecated = "error"
+ignore-comment-unknown-rule = "error"
+invalid-ignore-comment = "error"
+possibly-missing-attribute = "error"
+possibly-missing-implicit-call = "error"
+redundant-cast = "error"
+# Enable rules that are off by default
+division-by-zero = "error"
+possibly-unresolved-reference = "error"
+
+[tool.vulture]
+paths = ["fpga/sim"]
+min_confidence = 60

@@ -34,7 +34,8 @@ architecture tb of tb_tournament is
     eval_interval => to_unsigned(0, 8),
     
     seed_count => to_unsigned(0, 8),
-    frame_limit => to_unsigned(0, 16)
+    frame_limit => to_unsigned(0, 16),
+    recycle_seeds => false
   );
 
   function simple_fitness return fitness_array_t is

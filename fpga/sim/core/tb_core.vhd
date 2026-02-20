@@ -31,8 +31,8 @@ architecture tb of tb_core is
 
 begin
 
-  -- Timeout after 125 us.
-  test_runner_watchdog(runner, 125 us);
+  -- Timeout after 500 us.
+  test_runner_watchdog(runner, 500 us);
 
   clk <= not clk after CLK_100MHZ_PERIOD / 2;
 
@@ -69,9 +69,27 @@ begin
 
       -- TODO: check more stuff?
       elsif run("playerinput_msg") then
+        -- first, enter inference/playing mode so NE will process inputs
+        o_rx_byte <= x"06"; -- INFERENCE_GO_MSG
+        o_rx_dv <= '1';
+        wait until rising_edge(clk);
+        o_rx_dv <= '0';
+
+        -- NE announces new state (NE_IS_PLAYING), consume that transfer
+        wait until i_tx_dv = '1';
+        wait until rising_edge(clk);
+        o_tx_done <= '1';
+        wait until rising_edge(clk);
+        o_tx_done <= '0';
+
+        -- wait for nn1 to finish computing (triggered by playagame request_input)
+        -- nn takes LAYER_COUNT cycles, but give it extra time for pipeline
+        for i in 1 to 20 loop
+          wait until rising_edge(clk);
+        end loop;
+
         -- send the PLAYER_INPUT_MSG
         o_rx_byte <= x"04";
-        -- valid signal goes high for once cycle
         o_rx_dv <= '1';
         wait until rising_edge(clk);
         o_rx_dv <= '0';
@@ -81,14 +99,12 @@ begin
 
         -- send the player input
         o_rx_byte <= "00000010"; -- go right
-        -- valid signal goes high for once cycle
         o_rx_dv <= '1';
         wait until rising_edge(clk);
         o_rx_dv <= '0';
 
-        -- we expect 18 transfers
-        -- this test fails if we don't get the 18 transfers, because the watchdog will trip
-        for i in 1 to 18 loop
+        -- we expect 19 transfers (1 header + 18 data bytes for gamestate)
+        for i in 1 to 19 loop
           -- wait for outputs
           wait until i_tx_dv = '1';
           wait until rising_edge(clk);

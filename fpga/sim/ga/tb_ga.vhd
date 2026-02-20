@@ -94,7 +94,10 @@ begin
 
       fn_go                    => fn_go,
       fn_done                  => fn_done,
-      fn_reference_fitness_sum => (others => '0')
+      fn_reference_fitness_sum => (others => '0'),
+
+      db_bram_dump       => false,
+      db_bram_dump_index => (others => '0')
     );
 
   -- Clock generation
