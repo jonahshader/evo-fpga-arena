@@ -19,7 +19,13 @@ spinal/target/
 spinal/project/target/
 spinal/project/project/
 spinal/simWorkspace/
+spinal/gen/
+spinal/generated/
 *.class
+
+# IDE
+.idea/
+.bsp/
 
 # Test data
 test_data/
