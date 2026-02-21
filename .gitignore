@@ -1,16 +1,32 @@
-build-debug
-build-release
-ghdl_out
-obj_dir
+# C++ build artifacts
+build/
+build-debug/
+build-release/
+obj_dir/
 *.o
-*.v
-game_test
-vunit_out
-test_data
-build
-*.dat
+
+# FPGA build outputs
 *.bit
 *.bit.bin
 *.bit.prm
-software/imgui.ini
+
+# VHDL simulation (GHDL / VUnit)
+ghdl_out/
+vunit_out/
+
+# SpinalHDL / sbt / Scala
+spinal/target/
+spinal/project/target/
+spinal/project/project/
+spinal/simWorkspace/
+*.class
+
+# Test data
+test_data/
+*.dat
+
+# Python
 __pycache__/
+
+# Application state
+software/imgui.ini
