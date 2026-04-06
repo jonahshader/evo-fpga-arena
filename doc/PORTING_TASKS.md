@@ -53,15 +53,28 @@ These modules instantiate nothing and only use type packages that are already po
 | Task ID | VHDL Source | Target SpinalHDL | Depends On |
 |---------|-------------|-------------------|------------|
 | T3a | `neuroevolution.vhd` | `Neuroevolution.scala` | T2a, T2b, T2c, T2d, T1g, T1i |
-| T3b | `comms_rx.vhd` | `comms/CommsRx.scala` | T1c (UartRx) — uses type packages only |
-| T3c | `comms_tx.vhd` | `comms/CommsTx.scala` | T1d (UartTx) — uses type packages only |
 
-### Tier 4 — Top-level integration
+### Comms Layer (redesigned — replaces T3b, T3c, T4a, T4b)
 
-| Task ID | VHDL Source | Target SpinalHDL | Depends On |
-|---------|-------------|-------------------|------------|
-| T4a | `core.vhd` | `Core.scala` | T3a, T3b, T3c |
-| T4b | `top.vhd` | `Top.scala` | T4a, T1c, T1d |
+The comms layer is **not a direct port** of the VHDL `comms_rx`/`comms_tx`/`core`/`top`.
+Instead it is a new transport-agnostic design supporting UART, AXI-DMA (KV260), and
+XDMA (PCIe). See `doc/COMMS_PROTOCOL.md` and `doc/COMMS_ARCHITECTURE.md` for details.
+
+| Task ID | Target SpinalHDL | Description | Depends On |
+|---------|-------------------|-------------|------------|
+| C1 | `comms/CommsDefs.scala` | Message IDs, CommandBundle, constants | Types only |
+| C2 | `comms/UartBridge.scala` | UART <-> AXI-Stream adapter | T1c, T1d |
+| C3 | `comms/ProtocolRx.scala` | Message deserializer (AXI-Stream in, NE signals out) | C1 |
+| C4 | `comms/ProtocolTx.scala` | Message serializer (NE signals in, AXI-Stream out) | C1 |
+| C5 | `platform/TopUart.scala` | UART top-level (replaces VHDL core.vhd + top.vhd) | T3a, C2, C3, C4 |
+
+Future (not blocking port completion):
+
+| Task ID | Target SpinalHDL | Description | Depends On |
+|---------|-------------------|-------------|------------|
+| C6 | `platform/TopKv260.scala` | KV260 AXI-DMA top-level | C5 |
+| C7 | `platform/XdmaBlackBox.scala` | XDMA port declaration for YPCB | — |
+| C8 | `platform/TopYpcb.scala` | YPCB PCIe XDMA top-level | C5, C7 |
 
 ## Instructions for Each Task
 
@@ -124,19 +137,15 @@ cd spinal && sbt "testOnly evo.YourTest"
 Time -->
 
   T1a (xormix32) ──────────────┐
-  T1b (bram_sdp) ──────────────┤
-  T1c (uart_rx)  ──────────────┤
-  T1d (uart_tx)  ──────────────┤
-  T1e (decoder)  ──────────────┤
-  T1f (mutate)   ──────────────┤──> T2a (nn)          ─┐
-  T1g (tournament) ────────────┤    T2b (bram_manager) ─┤
-  T1h (victor_copy) ───────────┤    T2c (playagame)    ─┤──> T3a (neuroevolution) ─┐
-  T1i (fitness)  ──────────────┘    T2d (ga)           ─┤    T3b (comms_rx)        ─┤──> T4a (core) ──> T4b (top)
-                                                        ┘    T3c (comms_tx)        ─┘
+  T1b (bram_sdp) ──────────────┤                                                         C1 (CommsDefs) ────────┐
+  T1c (uart_rx)  ──────────────┤                                                         C3 (ProtocolRx) ───────┤
+  T1d (uart_tx)  ──────────────┤                                                         C4 (ProtocolTx) ───────┤
+  T1e (decoder)  ──────────────┤                                                         C2 (UartBridge) ───────┤
+  T1f (mutate)   ──────────────┤──> T2a (nn)          ─┐                                                       │
+  T1g (tournament) ────────────┤    T2b (bram_manager) ─┤                                                      │
+  T1h (victor_copy) ───────────┤    T2c (playagame)    ─┤──> T3a (neuroevolution) ─── C5 (TopUart) ────────────┘
+  T1i (fitness)  ──────────────┘    T2d (ga)           ─┘
 ```
 
-Maximum parallelism:
-- **Tier 1**: 9 tasks in parallel
-- **Tier 2**: 4 tasks in parallel
-- **Tier 3**: 3 tasks in parallel (T3b/T3c can start with Tier 2 since they only need types)
-- **Tier 4**: 2 tasks serial
+C1-C4 can proceed in parallel with Tier 2/3, since they only depend on type packages.
+C5 (TopUart) is the final integration point, depending on both T3a and C2-C4.
