@@ -23,58 +23,58 @@ The types and game engine are already done. This document describes the remainin
 Modules within the same tier have no dependencies on each other and CAN be ported
 in parallel. Each tier depends on all previous tiers being complete.
 
-### Tier 1 — Leaf modules (all parallel)
+### Tier 1 — Leaf modules (all parallel) ✅
 
 These modules instantiate nothing and only use type packages that are already ported.
 
-| Task ID | VHDL Source | Target SpinalHDL | Description |
-|---------|-------------|-------------------|-------------|
-| T1a | `imports/xormix32.vhd` | `infra/Xormix32.scala` | XORmix32 RNG. Wrap as BlackBox or native port. Has generics for stream count. |
-| T1b | `imports/bram_sdp.vhd` | `infra/BramSdp.scala` | Simple dual-port BRAM. Use SpinalHDL `Mem` — no need for a wrapper, but create one for API parity. |
-| T1c | `imports/uart_rx.vhd` | `comms/UartRx.scala` | UART receiver. Generic `G_CLKS_PER_BIT`. |
-| T1d | `imports/uart_tx.vhd` | `comms/UartTx.scala` | UART transmitter. Generic `G_CLKS_PER_BIT`. |
-| T1e | `neural_network/decoder_funs.vhd` | `nn/Decoder.scala` | Pure function: maps param_index → layer/neuron/weight via bit-slicing. |
-| T1f | `neural_network/mutate_funs.vhd` | `nn/Mutate.scala` | Pure function: uniform random mutation ±1..4 with clamping. |
-| T1g | `tournament.vhd` | `ga/Tournament.scala` | Tournament selection FSM. Uses RNG to pick candidates, tracks winner counts. |
-| T1h | `victor_copy.vhd` | `ga/VictorCopy.scala` | Selective reproduction FSM. Pairs multi-victors with non-victors, issues COPY_AND_MUTATE. |
-| T1i | `fitness.vhd` | `ga/Fitness.scala` | Fitness evaluation FSM. Iterates chromosomes × opponents × seeds × swap. |
+| Task ID | Status | VHDL Source | Target SpinalHDL | Description |
+|---------|--------|-------------|-------------------|-------------|
+| T1a | ✅ | `imports/xormix32.vhd` | `infra/Xormix32.scala` | XORmix32 RNG. Wrap as BlackBox or native port. Has generics for stream count. |
+| T1b | ✅ | `imports/bram_sdp.vhd` | `infra/BramSdp.scala` | Simple dual-port BRAM. Use SpinalHDL `Mem` — no need for a wrapper, but create one for API parity. |
+| T1c | ✅ | `imports/uart_rx.vhd` | `comms/UartRx.scala` | UART receiver. Generic `G_CLKS_PER_BIT`. |
+| T1d | ✅ | `imports/uart_tx.vhd` | `comms/UartTx.scala` | UART transmitter. Generic `G_CLKS_PER_BIT`. |
+| T1e | ✅ | `neural_network/decoder_funs.vhd` | `nn/Decoder.scala` | Pure function: maps param_index → layer/neuron/weight via bit-slicing. |
+| T1f | ✅ | `neural_network/mutate_funs.vhd` | `nn/Mutate.scala` | Pure function: uniform random mutation ±1..4 with clamping. |
+| T1g | ✅ | `tournament.vhd` | `ga/Tournament.scala` | Tournament selection FSM. Uses RNG to pick candidates, tracks winner counts. |
+| T1h | ✅ | `victor_copy.vhd` | `ga/VictorCopy.scala` | Selective reproduction FSM. Pairs multi-victors with non-victors, issues COPY_AND_MUTATE. |
+| T1i | ✅ | `fitness.vhd` | `ga/Fitness.scala` | Fitness evaluation FSM. Iterates chromosomes × opponents × seeds × swap. |
 
-### Tier 2 — Depends on Tier 1
+### Tier 2 — Depends on Tier 1 ✅
 
-| Task ID | VHDL Source | Target SpinalHDL | Depends On |
-|---------|-------------|-------------------|------------|
-| T2a | `neural_network/nn.vhd` | `nn/NeuralNetwork.scala` | T1e (Decoder) |
-| T2b | `bram_manager.vhd` | `infra/BramManager.scala` | T1b (BramSdp), T1f (Mutate) |
-| T2c | `playagame.vhd` | `game/PlayAGame.scala` | Game (already done) |
-| T2d | `ga.vhd` | `ga/Ga.scala` | T1a (Xormix32), T1h (VictorCopy) |
+| Task ID | Status | VHDL Source | Target SpinalHDL | Depends On |
+|---------|--------|-------------|-------------------|------------|
+| T2a | ✅ | `neural_network/nn.vhd` | `nn/NeuralNetwork.scala` | T1e (Decoder) |
+| T2b | ✅ | `bram_manager.vhd` | `infra/BramManager.scala` | T1b (BramSdp), T1f (Mutate) |
+| T2c | ✅ | `playagame.vhd` | `game/PlayAGame.scala` | Game (already done) |
+| T2d | ✅ | `ga.vhd` | `ga/Ga.scala` | T1a (Xormix32), T1h (VictorCopy) |
 
-### Tier 3 — Depends on Tier 2
+### Tier 3 — Depends on Tier 2 ✅
 
-| Task ID | VHDL Source | Target SpinalHDL | Depends On |
-|---------|-------------|-------------------|------------|
-| T3a | `neuroevolution.vhd` | `Neuroevolution.scala` | T2a, T2b, T2c, T2d, T1g, T1i |
+| Task ID | Status | VHDL Source | Target SpinalHDL | Depends On |
+|---------|--------|-------------|-------------------|------------|
+| T3a | ✅ | `neuroevolution.vhd` | `Neuroevolution.scala` | T2a, T2b, T2c, T2d, T1g, T1i |
 
-### Comms Layer (redesigned — replaces T3b, T3c, T4a, T4b)
+### Comms Layer (redesigned — replaces T3b, T3c, T4a, T4b) ✅
 
 The comms layer is **not a direct port** of the VHDL `comms_rx`/`comms_tx`/`core`/`top`.
 Instead it is a new transport-agnostic design supporting UART, AXI-DMA (KV260), and
 XDMA (PCIe). See `doc/COMMS_PROTOCOL.md` and `doc/COMMS_ARCHITECTURE.md` for details.
 
-| Task ID | Target SpinalHDL | Description | Depends On |
-|---------|-------------------|-------------|------------|
-| C1 | `comms/CommsDefs.scala` | Message IDs, CommandBundle, constants | Types only |
-| C2 | `comms/UartBridge.scala` | UART <-> AXI-Stream adapter | T1c, T1d |
-| C3 | `comms/ProtocolRx.scala` | Message deserializer (AXI-Stream in, NE signals out) | C1 |
-| C4 | `comms/ProtocolTx.scala` | Message serializer (NE signals in, AXI-Stream out) | C1 |
-| C5 | `platform/TopUart.scala` | UART top-level (replaces VHDL core.vhd + top.vhd) | T3a, C2, C3, C4 |
+| Task ID | Status | Target SpinalHDL | Description | Depends On |
+|---------|--------|-------------------|-------------|------------|
+| C1 | ✅ | `comms/CommsDefs.scala` | Message IDs, CommandBundle, constants | Types only |
+| C2 | ✅ | `comms/UartBridge.scala` | UART <-> AXI-Stream adapter | T1c, T1d |
+| C3 | ✅ | `comms/ProtocolRx.scala` | Message deserializer (AXI-Stream in, NE signals out) | C1 |
+| C4 | ✅ | `comms/ProtocolTx.scala` | Message serializer (NE signals in, AXI-Stream out) | C1 |
+| C5 | ✅ | `platform/TopUart.scala` | UART top-level (replaces VHDL core.vhd + top.vhd) | T3a, C2, C3, C4 |
 
 Future (not blocking port completion):
 
-| Task ID | Target SpinalHDL | Description | Depends On |
-|---------|-------------------|-------------|------------|
-| C6 | `platform/TopKv260.scala` | KV260 AXI-DMA top-level | C5 |
-| C7 | `platform/XdmaBlackBox.scala` | XDMA port declaration for YPCB | — |
-| C8 | `platform/TopYpcb.scala` | YPCB PCIe XDMA top-level | C5, C7 |
+| Task ID | Status | Target SpinalHDL | Description | Depends On |
+|---------|--------|-------------------|-------------|------------|
+| C6 | | `platform/TopKv260.scala` | KV260 AXI-DMA top-level | C5 |
+| C7 | | `platform/XdmaBlackBox.scala` | XDMA port declaration for YPCB | — |
+| C8 | | `platform/TopYpcb.scala` | YPCB PCIe XDMA top-level | C5, C7 |
 
 ## Instructions for Each Task
 
